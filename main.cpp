@@ -1,15 +1,12 @@
 #include <iostream>
 #include <random>
-#include <map>
-#include <stdio.h>
-#include <fcntl.h>
+#include <vector>
+#include <filesystem>
+#include <fstream>
 using namespace std;
 
 #define MAPSIZE 10
 
-enum ShipDirection {
-	LEFT, UP, RIGHT, DOWN
-};
 
 struct ShipInfo {
 		std::string name;
@@ -17,17 +14,17 @@ struct ShipInfo {
 		int length;
 };
 
-// Строка - название корабля,
-// первое число пары - количество кораблей,
-// Второе число пары - длина корабля
-std::vector<ShipInfo> SHIPS = {
-	{"Четырёхпалубник", 1, 4},
-	{"Трёхпалубник", 2, 3},
-	{"Двухпалубник", 3, 2},
-	{"Однопалубник", 4, 1}
-};
 
 class Map {
+
+		enum ShipDirection {
+			LEFT, UP, RIGHT, DOWN
+		};
+
+		enum RecognizeError {
+			NoError, IncorrectDirection, IncorrectCell, CellAlreadyUsed
+		};
+
 	public:
 
 		Map() : data() {
@@ -40,10 +37,93 @@ class Map {
 					data[i][j] = map[i][j];
 		}
 
-		bool get(int col, int row) const {
-			if (col < 0 || row < 0 || col >= MAPSIZE || row >= MAPSIZE)
-				return false;
-			return data[row][col];
+		void loadFromFile(const std::string &filename) {
+			std::ifstream f;
+			f.open(filename);
+			if (!f.is_open())
+				throw std::runtime_error("Can't open" + filename);
+
+			int lineCount = 0;
+			while (f.peek() != EOF) {
+				int length, row, col;
+				std::string direction;
+				f >> length >> row >> col >> direction;
+				row -= 1;
+				col -= 1;
+				switch(this->recognizeAndSetShipSource(row, col, direction, length)) {
+					case RecognizeError::NoError:
+						break;
+					case RecognizeError::IncorrectDirection:
+						throw std::runtime_error("Ошибка распознавания файла!\nСтрока:" + std::to_string(lineCount) + " Неверное направление! Возможные: \"влево\", \"вправо\", \"вверх\", \"вниз\" \n");
+					case RecognizeError::IncorrectCell:
+						throw std::runtime_error("Ошибка распознавания файла!\nСтрока:" + std::to_string(lineCount) + " Неверная строка или/и столбец!\n");
+					case RecognizeError::CellAlreadyUsed:
+						throw std::runtime_error("Ошибка распознавания файла!\nСтрока:" + std::to_string(lineCount) + " Клетка с этим направлением уже занята!\n");
+				}
+				lineCount += 1;
+				//TODO: прикрутить проверку что все корабли установлены
+			}
+		}
+
+		void loadFromConsole() {
+			auto ship = SHIPS.begin();
+			while (true) {
+				if (ship == SHIPS.end())
+					break;
+
+				cout << "Расставьте " << ship->count << " " << ship->name << ". Ваше поле:\n";
+				this->print();
+
+				cout << "Введите данные корабля в виде \"СТРОКА СТОЛБЕЦ НАПРАВЛЕНИЕ\". Например: \"1 1 вправо\"\n";
+				int row, col;
+				std::string direction;
+				cin >> row >> col >> direction;
+
+				row -= 1;
+				col -= 1;
+
+				switch(this->recognizeAndSetShipSource(row, col, direction, ship->length)) {
+					case RecognizeError::NoError:
+						ship->count -= 1;
+						break;
+					case RecognizeError::IncorrectDirection:
+						cout << "Неверное направление! Возможные: \"влево\", \"вправо\", \"вверх\", \"вниз\" \n";
+						break;
+					case RecognizeError::IncorrectCell:
+						cout << "Неверная строка или/и столбец!\n";
+						break;
+					case RecognizeError::CellAlreadyUsed:
+						cout << "Клетка с этим направлением уже занята!\n";
+						break;
+				}
+
+				if (ship->count == 0)
+					++ship;
+			}
+		}
+
+		RecognizeError recognizeAndSetShipSource(int row, int col, const std::string &stringDirection, int length) {
+			ShipDirection direction;
+			if (this->isValidCell(row, col)) {
+				if (stringDirection == "вправо" || stringDirection == "право") {
+					direction = ShipDirection::RIGHT;
+				}else if (stringDirection == "влево" || stringDirection == "лево") {
+					direction = ShipDirection::LEFT;
+				}else if (stringDirection == "вверх" || stringDirection == "верх") {
+					direction = ShipDirection::UP;
+				}else if (stringDirection == "вниз" || stringDirection == "низ") {
+					direction = ShipDirection::DOWN;
+				} else {
+					return RecognizeError::IncorrectDirection;
+				}
+
+				if (this->setShipIfCanPlace(row, col, direction, length)) {
+					return RecognizeError::NoError;
+				}else{
+					return RecognizeError::CellAlreadyUsed;
+				}
+			}
+			return RecognizeError::IncorrectCell;
 		}
 
 		void generateRandomMap() {
@@ -54,6 +134,89 @@ class Map {
 			for (auto it = SHIPS.begin(); it != SHIPS.end(); ++it)
 				for (int shipsCount = 0; shipsCount < it->count; ++shipsCount)
 					while (!this->setShipIfCanPlace(randomMapNumber(rng), randomMapNumber(rng), ShipDirection(randomDirection(rng)), it->length));
+		}
+
+		bool setShipIfCanPlace(int row, int col, ShipDirection direction, int length) {
+			if (!this->isValidCell(row, col)) {
+				cout << "INVALID\n";
+				return false;
+			}
+
+			switch (direction) {
+				case ShipDirection::LEFT:
+					if (col - length < 0)
+						return false;
+
+					for (int i = 0; i < length; ++i)
+						if (!this->canPlaceShipInCell(row, col-i))
+							return false;
+
+					for (int i = 0; i < length; ++i)
+						this->data[row][col-i] = true;
+					break;
+
+				case ShipDirection::UP:
+					if (row - length < 0)
+						return false;
+
+					for (int i = 0; i < length; ++i)
+						if (!this->canPlaceShipInCell(row-i, col))
+							return false;
+
+					for (int i = 0; i < length; ++i)
+						this->data[row-i][col] = true;
+					break;
+
+				case ShipDirection::RIGHT:
+					if (col + length >= MAPSIZE)
+						return false;
+
+					for (int i = 0; i < length; ++i)
+						if (!this->canPlaceShipInCell(row, col+i))
+							return false;
+
+					for (int i = 0; i < length; ++i)
+						this->data[row][col+i] = true;
+					break;
+
+				case ShipDirection::DOWN:
+					if (row + length >= MAPSIZE)
+						return false;
+
+					for (int i = 0; i < length; ++i)
+						if (!this->canPlaceShipInCell(row+i, col))
+							return false;
+
+					for (int i = 0; i < length; ++i)
+						this->data[row+i][col] = true;
+					break;
+
+				default:
+					return false;
+			}
+			return true;
+		}
+
+		bool canPlaceShipInCell(int row, int col) {
+			for (int i = -1; i < 2; ++i) {
+				for (int j = -1; j < 2; ++ j) {
+					if (!this->isValidCell(row+i, col+j))
+						continue;
+					if (this->data[row+i][col+j])
+						return false;
+				}
+			}
+			return true;
+		}
+
+		bool isValidCell(int row, int col) const {
+			if (row < 0 || row >= MAPSIZE || col < 0 || col >= MAPSIZE)
+				return false;
+			return true;
+		}
+
+		void print() const {
+			cout << (*this);
 		}
 
 		friend void operator<<(std::ostream &stream, const Map &m) {
@@ -91,92 +254,30 @@ class Map {
 			}
 		}
 
-		void print() const {
-			cout << (*this);
-		}
-
 		void clear() {
 			for (int i = 0; i < MAPSIZE; ++i)
 				for (int j = 0; j < MAPSIZE; ++j)
 					this->data[i][j] = false;
 		}
 
-
-	private:
-		bool canPlaceShipInCell(int col, int row) {
-			for (int i = -1; i < 2; ++i) {
-				for (int j = -1; j < 2; ++ j) {
-					if (row+i < 0 || row+i >= MAPSIZE || col+j < 0 || col+j >= MAPSIZE)
-						continue;
-					if (this->data[row+i][col+j])
-						return false;
-				}
-			}
-			return true;
-		}
-
-		bool setShipIfCanPlace(int col, int row, ShipDirection direction, int length) {
-			if (col < 0 || col >= MAPSIZE || row < 0 || row >= MAPSIZE)
+		bool get(int row, int col) const {
+			if (!this->isValidCell(row, col))
 				return false;
-
-			switch (direction) {
-				case ShipDirection::LEFT:
-					if (col - length < 0)
-						return false;
-
-					for (int i = 0; i < length; ++i)
-						if (!this->canPlaceShipInCell(col-i, row))
-							return false;
-
-					for (int i = 0; i < length; ++i)
-						this->data[row][col-i] = true;
-					break;
-
-				case ShipDirection::UP:
-					if (row - length < 0)
-						return false;
-
-					for (int i = 0; i < length; ++i)
-						if (!this->canPlaceShipInCell(col, row-i))
-							return false;
-
-					for (int i = 0; i < length; ++i)
-						this->data[row-i][col] = true;
-					break;
-
-				case ShipDirection::RIGHT:
-					if (col + length >= MAPSIZE)
-						return false;
-
-					for (int i = 0; i < length; ++i)
-						if (!this->canPlaceShipInCell(col+i, row))
-							return false;
-
-					for (int i = 0; i < length; ++i)
-						this->data[row][col+i] = true;
-					break;
-
-				case ShipDirection::DOWN:
-					if (row + length >= MAPSIZE)
-						return false;
-
-					for (int i = 0; i < length; ++i)
-						if (!this->canPlaceShipInCell(col, row+i))
-							return false;
-
-					for (int i = 0; i < length; ++i)
-						this->data[row+i][col] = true;
-					break;
-
-				default:
-					return false;
-			}
-			return true;
+			return data[row][col];
 		}
 
 
 	private:
 		bool data[MAPSIZE][MAPSIZE];
+		// Строка - название корабля,
+		// первое число - количество кораблей,
+		// Второе число - длина корабля
+		std::vector<ShipInfo> SHIPS = {
+			{"Четырёхпалубник", 1, 4},
+			{"Трёхпалубник", 2, 3},
+			{"Двухпалубник", 3, 2},
+			{"Однопалубник", 4, 1}
+		};
 };
 
 
@@ -198,10 +299,17 @@ int main() {
 		 << "  |  |_)  |  /  _____  \\      |  |         |  |     |  `----.|  |____  " << "\n"
 		 << "  |______/  /__/     \\__\\     |__|         |__|     |_______||_______|" << "\n";
 
-	bool playerMap[MAPSIZE][MAPSIZE];
+	Map botMap;
+	botMap.generateRandomMap();
+	botMap.print();
 
-	bool botMap[MAPSIZE][MAPSIZE];
-
+	Map playerMap;
+	if (std::filesystem::is_regular_file(std::filesystem::current_path().c_str()+std::string("/../input.txt"))) {
+		playerMap.loadFromFile(std::filesystem::current_path().c_str()+std::string("/../input.txt"));
+	}else{
+		playerMap.loadFromConsole();
+	}
+	playerMap.print();
 
 	return 0;
 }
