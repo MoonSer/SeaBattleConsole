@@ -3,6 +3,8 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <cstring>
 using namespace std;
 
 #define MAPSIZE 10
@@ -225,24 +227,26 @@ class Map {
 			// Штука в том, что символ юникод не влазит в один char, так что храним в массиве char'ов
 			// При необходимости итерирования к следующей буковке - увеличиваем элемент с первым индексом
 
-			char alphabetLetter[8]; // Тут будем хранить текуую букву
+//			char alphabetLetter[8]; // Тут будем хранить текуую букву
 
-			// проблема в том, что "\u0430" - константный массив. А нам нужно менять первый элемент. Поэтому копируем в изменяемый массив:
-			for (int i = 0; i < 8; ++i)
-				alphabetLetter[i] = "\u0430"[i]; // Символ а в юникоде
-			alphabetLetter[1] += -1; // Из-за того, что в циклы мы сперва меняем букву приходится начинать с -1 позиции
+//			// проблема в том, что "\u0430" - константный массив. А нам нужно менять первый элемент. Поэтому копируем в изменяемый массив:
+//			for (int i = 0; i < 8; ++i)
+//				alphabetLetter[i] = "\u0430"[i]; // Символ а в юникоде
+//			alphabetLetter[1] += -1; // Из-за того, что в циклы мы сперва меняем букву приходится начинать с -1 позиции
 
-			// Выводим наши буквы на экран
-			for (int i = 0; i < MAPSIZE; ++i) {
-				// Пропускаем букву й
-				if (i == MAPSIZE-1)
-					alphabetLetter[1] += 1;
+//			// Выводим наши буквы на экран
+//			for (int i = 0; i < MAPSIZE; ++i) {
+//				// Пропускаем букву й
+//				if (i == MAPSIZE-1)
+//					alphabetLetter[1] += 1;
 
-				// Меняем символ на последующий
-				alphabetLetter[1] += 1;
+//				// Меняем символ на последующий
+//				alphabetLetter[1] += 1;
 
-				cout << alphabetLetter << " ";
-			}
+//				cout << alphabetLetter << " ";
+//			}
+			for (int i = 97; i < MAPSIZE+97; ++i)
+				std::cout << char(i) << " ";
 			stream << "\n";
 			// Выводим карту
 			for (int i = 0; i < MAPSIZE; ++i) {
@@ -280,6 +284,39 @@ class Map {
 		};
 };
 
+class Player {
+	public:
+		Player() {
+			if (std::filesystem::is_regular_file(std::filesystem::current_path().c_str()+std::string("/../input.txt"))) {
+				this->shipMap.loadFromFile(std::filesystem::current_path().c_str()+std::string("/../input.txt"));
+			}else{
+				this->shipMap.loadFromConsole();
+			}
+		}
+
+		void attack() {
+			std::cout << "Введите поле для атаки (\"а1\"): ";
+			std::string s;
+			std::cin >> s;
+			if (int(s[0]) < 97 || int(s[0]) >= 97 + MAPSIZE || std::stoi(s.substr(1)) < 1 || std::stoi(s.substr(1)) > MAPSIZE) {
+				std::cout << s << " " << std::stoi(s.substr(1)) << " " << int(s[0]) << "\n";
+				std::cout << "Введены неверные данные!\n\tДоступные:" << char(97) << "1-" << char(97+MAPSIZE) << MAPSIZE << ")";
+				return;
+			}
+		}
+
+		void printMaps(){
+			std::cout << "Корабли игрока:\n";
+			this->shipMap.print();
+			std::cout << "Атакованные поля:\n";
+			this->attackMap.print();
+		}
+
+	private:
+		Map shipMap;
+		Map attackMap;
+};
+
 
 
 
@@ -303,13 +340,9 @@ int main() {
 	botMap.generateRandomMap();
 	botMap.print();
 
-	Map playerMap;
-	if (std::filesystem::is_regular_file(std::filesystem::current_path().c_str()+std::string("/../input.txt"))) {
-		playerMap.loadFromFile(std::filesystem::current_path().c_str()+std::string("/../input.txt"));
-	}else{
-		playerMap.loadFromConsole();
-	}
-	playerMap.print();
+	Player player;
+	player.printMaps();
+	player.attack();
 
 	return 0;
 }
