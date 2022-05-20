@@ -7,4 +7,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(SeaBattle main.cpp)
 
-# target_link_libraries(SeaBattle -static)
+target_link_libraries(SeaBattle -static)
